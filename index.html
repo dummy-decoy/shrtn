@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+    <head>
+        <title>url shortener</title>
+        <script type="text/javascript">
+            function create_shortcut() {
+                target=document.getElementById('target').value;
+                fetch('/api/shorten?target='+encodeURIComponent(target)).then(response => {
+                    return response.json();
+                }).then(data => {
+                    if (('target' in data) && (data['target'] == target)) {
+                        document.getElementById('result').innerHTML = 'shortened to <a href="'+data['url']+'">'+data['url']+'</a>';
+                    }
+                });
+            }
+        </script>
+    </head>
+    <body>
+        <h1>Create shortened link:</h1>
+        <form name="create" action="javascript:create_shortcut()">
+            <input id="target" name="target" type="text" value="" size="80%" onchange=""/>
+            <input id="create" name="create" type="submit" value="create"/>
+        </form>
+        <span id="result"></span>
+    </body>
+</html>
