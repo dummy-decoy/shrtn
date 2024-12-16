@@ -17,8 +17,10 @@ const hash = function(str) {
 
 const create_database  = function() {
     db.exec(' \
-        create table if not exists links (url int primary key, target string); \
-        create unique index if not exists url_idx on links(url); \
+        create table if not exists links (url int not null primary key, target text); \
+        create table if not exists stats (url int not null primary key, date_created datetime, use_count int, last_accessed datetime); \
+        create unique index if not exists links_url_idx on links(url); \
+        create unique index if not exists stats_url_idx on stats(url); \
     ');
 }
 
@@ -26,7 +28,7 @@ const host = '0.0.0.0';
 const port = process.argv[2] || 80;
 
 const server = http.createServer(function (req, res) { 
-    call = url.parse(req.url, true);
+    var call = url.parse(req.url, true);
     console.log('request: '+call.href);
 
     if ((call.pathname == '/') || (call.pathname == '/index.html')) {
@@ -39,16 +41,41 @@ const server = http.createServer(function (req, res) {
                 res.end(data);
             }
         });
+    } else if (call.pathname == '/stats.html') {
+        fs.readFile('./stats.html', function (err, data) {
+            if (err) {
+                res.writeHead(404, {'Content-Type': 'text/plain'});
+                res.end('404: File not found');
+            } else {
+                res.writeHead(200, {'Content-Type': 'text/html'});
+                res.end(data);
+            }
+        });
     } else if (call.pathname == '/api/shorten') {
-        target = call.query['target'];
-        hashed = hash(target);
+        var target = call.query['target'];
+        var hashed = hash(target);
         db.run('insert or replace into links(url, target) values (?, ?);', hashed, target, (err) => {
             console.log('shortened: '+hashed.toString(36)+' < '+target);
             res.writeHead(200, {'Content-Type': 'text/json'})
             res.end(JSON.stringify({'url': 'http://stochastique.io/'+hashed.toString(36), 'target': target}));            
         });
+        db.run('insert or ignore into stats(url, date_created, use_count, last_accessed) values (?,datetime(\'now\'),0,datetime(\'now\'));', hashed);
+    } else if (call.pathname == '/api/stats') {
+        var hashed = url.parse(call.query['url'], false).pathname;
+        hashed = parseInt(hashed.startsWith('/') ? hashed.substring(1) : hashed, 36);
+        console.log('stats: '+hashed);
+        db.get('select url, date_created, use_count, last_accessed from stats where url = ?;', hashed, (err, row) => {
+            if (!row) {
+                res.writeHead(404, {'Content-Type': 'text/json'});
+                res.end(JSON.stringify({}));
+            } else {
+                console.log('stats: '+hashed);
+                res.writeHead(200, {'Content-Type': 'text/json'})
+                res.end(JSON.stringify({'url': 'http://stochastique.io/'+hashed, 'date_created': row.date_created, 'use_count': row.use_count, 'last_accessed': row.last_accessed}));
+            }
+        });
     } else {
-        hashed = parseInt(call.path.substring(1), 36);
+        var hashed = parseInt(call.path.substring(1), 36);
         db.get('select target from links where url = ?;', hashed, (err, row) => {
             if (!row) {
                 console.log('gone: '+call.path.substring(1));
@@ -58,6 +85,7 @@ const server = http.createServer(function (req, res) {
                 console.log('redirect: '+call.path.substring(1)+' > '+row.target);
                 res.writeHead(307, {'Location': row.target});
                 res.end();
+                db.run('update stats set use_count=use_count+1, last_accessed=datetime(\'now\') where url=?;', hashed);
             }
         });
     }
